@@ -1,0 +1,24 @@
+# WellAware AI – Python dependencies
+# Python 3.9 – 3.12 recommended.
+#
+# GPU users (VS Code / local): install PyTorch with CUDA FIRST using the
+# command from https://pytorch.org/get-started/locally/ , then run
+#     pip install -r requirements.txt
+# Google Colab already has a CUDA build of torch, so the line below is
+# satisfied and will not be reinstalled.
+
+streamlit>=1.37
+torch>=2.1
+diffusers>=0.30.0
+transformers>=4.41.0
+accelerate>=0.30.0
+safetensors>=0.4.0
+huggingface_hub>=0.23.0
+Pillow>=10.0
+opencv-python-headless>=4.10.0.84,<5
+pytesseract>=0.3.10
+pytest>=8.0
+python-dotenv>=1.0.0
+
+# Optional face restoration; install separately only when a compatible CUDA
+# environment is available: pip install gfpgan

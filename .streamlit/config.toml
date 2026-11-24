@@ -1,0 +1,14 @@
+# Streamlit theme – accessible teal / blue palette
+[theme]
+base = "light"
+primaryColor = "#0B7774"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2FAFB"
+textColor = "#1F3B4D"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true

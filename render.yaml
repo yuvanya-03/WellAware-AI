@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: wellaware-ai
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: SPACE_ID
+        value: render
+      - key: HF_TOKEN
+        sync: false
