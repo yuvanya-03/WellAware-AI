@@ -1,14 +1,18 @@
+import os
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from PIL import Image, ImageFont
 
 import config
 from modules import image_utils
 from modules.image_utils import _readable_text_color, create_campaign_poster
+from modules.image_generator import ProviderPaymentError, WellnessImageGenerator
 from modules.preset_campaigns import load_saved_gallery_posters, load_saved_preset_posters
 from modules.prompt_processor import (
     PosterCopy,
@@ -27,6 +31,53 @@ class WordTokenizer:
 
 
 class CampaignQualityTests(unittest.TestCase):
+    def test_paid_provider_402_falls_back_to_free_vector_art(self):
+        generator = WellnessImageGenerator(engine="Cloud inference")
+        generated_art = Image.new("RGB", (192, 256), "#0D9488")
+
+        with (
+            patch.object(generator, "load", return_value=generator),
+            patch.object(
+                generator, "_generate_cloud",
+                side_effect=ProviderPaymentError("HTTP 402"),
+            ) as hosted_generation,
+            patch.object(
+                image_utils, "generate_procedural_vector_art",
+                return_value=generated_art,
+            ) as vector_generation,
+        ):
+            outputs = generator.generate(
+                prompt="One adult walking in a sunny park",
+                negative_prompt="text",
+                width=192,
+                height=256,
+                num_images=2,
+                seed=41,
+            )
+
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(hosted_generation.call_count, 1)
+        self.assertEqual(vector_generation.call_count, 2)
+        self.assertTrue(all(out.engine_label == "Built-in vector artwork" for out in outputs))
+        self.assertTrue(all("not applicable" in out.text_gate_result for out in outputs))
+
+    def test_cloud_provider_402_stops_paid_retries(self):
+        generator = WellnessImageGenerator(engine="Cloud inference")
+        client = Mock()
+        payment_error = RuntimeError("402 Payment Required")
+        payment_error.response = SimpleNamespace(status_code=402)
+        client.text_to_image.side_effect = payment_error
+        hub = SimpleNamespace(InferenceClient=Mock(return_value=client))
+
+        with (
+            patch.dict(os.environ, {"HF_TOKEN": "test-token"}),
+            patch.dict(sys.modules, {"huggingface_hub": hub}),
+        ):
+            with self.assertRaises(ProviderPaymentError):
+                generator._generate_cloud("prompt", "negative", 512, 512, 4, 1.0, 7)
+
+        self.assertEqual(client.text_to_image.call_count, 1)
+
     def test_saved_preset_posters_load_for_unified_gallery(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             poster_dir = Path(temporary_directory)

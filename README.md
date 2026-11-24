@@ -75,6 +75,10 @@ separately by Render and must not be committed to the repository.
 Render's free service sleeps after inactivity and has an ephemeral filesystem:
 generated posters and the gallery can disappear after sleep, restart, or
 redeploy. Hosted inference is subject to Hugging Face availability and quota.
+Free Hugging Face accounts do not include Inference Provider credits. If a
+hosted image request returns HTTP 402, the app creates a clearly labeled
+built-in vector illustration instead, so the poster can still be completed
+without paid inference. This fallback is not a photo or hosted-model output.
 
 ## Hugging Face Spaces deployment
 

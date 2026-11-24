@@ -16,6 +16,10 @@ class GenerationError(Exception):
     """Raised with a user-friendly message when generation fails."""
 
 
+class ProviderPaymentError(GenerationError):
+    """Raised when the hosted inference provider requires paid credits."""
+
+
 @dataclass
 class DeviceInfo:
     device: str          # "cuda", "mps" or "cpu"
@@ -35,6 +39,7 @@ class GeneratedImage:
     seconds: float
     text_gate_result: str = "not checked"
     face_gate_result: str = "not checked"
+    engine_label: str = ""
 
 
 # ------------------------------------------------------------------
@@ -122,6 +127,7 @@ class WellnessImageGenerator:
 
         try:
             try:
+                load_kwargs["local_files_only"] = True
                 pipe = AutoPipelineForText2Image.from_pretrained(repo_id, **load_kwargs)
             except (OSError, ValueError):
                 load_kwargs.pop("variant", None)
@@ -222,9 +228,31 @@ class WellnessImageGenerator:
             )
         )
         results: List[GeneratedImage] = []
+        vector_fallback_used = False
+
+        def make_vector_fallback(image_seed: int) -> GeneratedImage:
+            from modules.image_utils import generate_procedural_vector_art
+
+            start = time.time()
+            image = generate_procedural_vector_art(
+                category, prompt, width, height, theme_choice=theme_choice
+            )
+            return GeneratedImage(
+                image=image.convert("RGB"),
+                seed=image_seed,
+                seconds=round(time.time() - start, 2),
+                text_gate_result="not applicable: built-in vector illustration",
+                face_gate_result="not applicable: built-in vector illustration",
+                engine_label="Built-in vector artwork",
+            )
+
         candidates_per_result = 4 if people_requested else 3
         candidate_total = num_images * candidates_per_result
         for i in range(num_images):
+            if vector_fallback_used:
+                results.append(make_vector_fallback(base_seed + i))
+                continue
+
             candidate_count = candidates_per_result
             candidates = []
             for attempt in range(candidate_count):
@@ -238,6 +266,11 @@ class WellnessImageGenerator:
                         prompt, negative_prompt, width, height, steps, guidance, img_seed,
                         candidate_index, candidate_total, progress_callback,
                     )
+                except ProviderPaymentError:
+                    vector_fallback_used = True
+                    if not candidates:
+                        results.append(make_vector_fallback(img_seed))
+                    break
                 except Exception as exc:
                     raise GenerationError(f"AI image generation failed: {exc}") from exc
 
@@ -261,6 +294,9 @@ class WellnessImageGenerator:
                 })
                 if not people_requested and not text_detected:
                     break
+
+            if not candidates:
+                continue
 
             def candidate_rank(candidate):
                 face_result = candidate["face"]
@@ -294,6 +330,7 @@ class WellnessImageGenerator:
                 seconds=best["seconds"],
                 text_gate_result=text_status,
                 face_gate_result=face_status,
+                engine_label=best.get("engine_label", ""),
             ))
 
         return results
@@ -351,6 +388,11 @@ class WellnessImageGenerator:
                     except Exception as exc:
                         errors.append(exc)
                         status = getattr(getattr(exc, "response", None), "status_code", None)
+                        if status == 402:
+                            raise ProviderPaymentError(
+                                "Hugging Face's hosted image provider returned HTTP 402. "
+                                "Free Hugging Face accounts do not include Inference Provider credits."
+                            ) from exc
                         if status == 503 and attempt < 2:
                             time.sleep(2 ** attempt)
                             continue
@@ -358,6 +400,11 @@ class WellnessImageGenerator:
                 except Exception as exc:
                     errors.append(exc)
                     status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status == 402:
+                        raise ProviderPaymentError(
+                            "Hugging Face's hosted image provider returned HTTP 402. "
+                            "Free Hugging Face accounts do not include Inference Provider credits."
+                        ) from exc
                     if status == 503 and attempt < 2:
                         time.sleep(2 ** attempt)
                         continue
